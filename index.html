@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>🧅 Bank Cebuli</title>
+<style>
+body{font-family:Arial;background:#f2f4f8;margin:0}
+.container{max-width:420px;margin:auto;padding:20px}
+.card{background:#fff;padding:20px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,.1);margin-bottom:20px}
+h1,h2{text-align:center;color:#003087}
+input,select,button{width:100%;padding:12px;margin-top:10px;border-radius:8px;font-size:15px}
+button{background:#0070e0;color:#fff;border:none;cursor:pointer}
+button:hover{background:#005bb5}
+.saldo{font-size:32px;text-align:center}
+.small{text-align:center;color:#666;font-size:13px}
+.logout{background:#ccc;color:#000}
+#app{display:none}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<div id="auth" class="card">
+<h1>🧅 Bank Cebuli</h1>
+<input id="email" placeholder="Email">
+<input id="password" type="password" placeholder="Hasło">
+<button onclick="register()">Rejestracja</button>
+<button onclick="login()">Logowanie</button>
+<p id="msg" class="small"></p>
+</div>
+
+<div id="app">
+<div class="card">
+<h2>Saldo</h2>
+<div class="saldo"><span id="saldo">0</span> 🧅</div>
+<p class="small" id="userEmail"></p>
+</div>
+
+<div class="card">
+<h2>Przelew</h2>
+<select id="users"></select>
+<input id="amount" type="number" placeholder="Ilość cebul">
+<button onclick="send()">Wyślij</button>
+<p id="transferMsg" class="small"></p>
+</div>
+
+<div class="card">
+<button class="logout" onclick="logout()">Wyloguj</button>
+</div>
+</div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+// ===== Firebase Config =====
+const firebaseConfig = {
+  apiKey:"AIzaSyBZRmANw06xJYdYnGbC2l_XcEnGy9UiVNM",
+  authDomain:"cebula-8d0d5.firebaseapp.com",
+  projectId:"cebula-8d0d5",
+  storageBucket:"cebula-8d0d5.appspot.com",
+  messagingSenderId:"585390317442",
+  appId:"1:585390317442:web:7ce7285161574fbfac399b"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// ===== HTML Elements =====
+const authDiv = document.getElementById("auth");
+const appDiv = document.getElementById("app");
+const saldoSpan = document.getElementById("saldo");
+const usersSelect = document.getElementById("users");
+const msg = document.getElementById("msg");
+const transferMsg = document.getElementById("transferMsg");
+const userEmail = document.getElementById("userEmail");
+const amount = document.getElementById("amount");
+
+// ===== Functions =====
+window.register = async () => {
+  try {
+    const cred = await createUserWithEmailAndPassword(auth,email.value,password.value);
+    await setDoc(doc(db,"bankCebuli",cred.user.uid), { email: cred.user.email, cebule: 100 });
+    email.value = ""; password.value = "";
+  } catch(e){ msg.textContent = e.message; }
+};
+
+window.login = async () => {
+  try {
+    await signInWithEmailAndPassword(auth,email.value,password.value);
+    email.value = ""; password.value = "";
+  } catch(e){ msg.textContent = e.message; }
+};
+
+window.logout = async () => {
+  await signOut(auth);
+};
+
+onAuthStateChanged(auth, async (user) => {
+  if(user){
+    authDiv.style.display = "none";
+    appDiv.style.display = "block";
+    userEmail.textContent = user.email;
+    loadSaldo();
+    loadUsers();
+  } else {
+    authDiv.style.display = "block";
+    appDiv.style.display = "none";
+    msg.textContent = "";
+  }
+});
+
+async function loadSaldo(){
+  const snap = await getDoc(doc(db,"bankCebuli",auth.currentUser.uid));
+  if(snap.exists()) saldoSpan.textContent = snap.data().cebule;
+}
+
+async function loadUsers(){
+  usersSelect.innerHTML = "";
+  const usersSnap = await getDocs(collection(db,"bankCebuli"));
+  usersSnap.forEach(u=>{
+    if(u.id !== auth.currentUser.uid){
+      const opt = document.createElement("option");
+      opt.value = u.id;
+      opt.textContent = u.data().email;
+      usersSelect.appendChild(opt);
+    }
+  });
+}
+
+// ===== Poprawiony przelew =====
+window.send = async () => {
+  const toId = usersSelect.value;
+  const amountNum = Number(amount.value);
+
+  if(!toId) return alert("Wybierz odbiorcę");
+  if(!amountNum || amountNum <=0) return alert("Wpisz poprawną ilość cebul");
+
+  const fromRef = doc(db,"bankCebuli",auth.currentUser.uid);
+  const toRef = doc(db,"bankCebuli",toId);
+
+  const fromSnap = await getDoc(fromRef);
+  const toSnap = await getDoc(toRef);
+
+  if(!fromSnap.exists() || !toSnap.exists()) return alert("Błąd: użytkownik nie istnieje");
+  if(fromSnap.data().cebule < amountNum) return alert("Masz za mało cebul!");
+
+  // Aktualizacja sald w trybie „bezpiecznym” (sekwencyjnie)
+  await updateDoc(fromRef, { cebule: fromSnap.data().cebule - amountNum });
+  await updateDoc(toRef, { cebule: toSnap.data().cebule + amountNum });
+
+  transferMsg.textContent = `Przesłano ${amountNum} 🧅 do ${toSnap.data().email}`;
+  amount.value = "";
+  loadSaldo();
+  loadUsers();
+};
+</script>
+</body>
+</html>
